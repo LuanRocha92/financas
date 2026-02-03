@@ -1,3 +1,4 @@
+# desafio.py
 import streamlit as st
 import pandas as pd
 import math
@@ -12,6 +13,8 @@ from db import (
     set_savings_override_v2,
     reset_savings_marks_v2,
     clear_savings_goal_v2,
+    create_desafio_transaction,
+    delete_desafio_transaction,
 )
 
 def fmt(v: float) -> str:
@@ -21,11 +24,13 @@ def fmt(v: float) -> str:
         v = 0.0
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def render_desafio():
+def render_desafio(data_padrao: date):
     init_db()
 
     st.title("🎯 Desafio (depósitos 1..N)")
     st.caption("Crie uma meta e marque depósitos. Clica e fica verde na hora ✅")
+
+    conectar = st.toggle("Conectar com lançamentos (criar entrada no caixa)", value=False)
 
     target_amount, due_date, n_deposits = get_savings_goal_v2()
 
@@ -87,13 +92,6 @@ def render_desafio():
     st.progress(progresso)
     st.caption(f"Falta: **{fmt(falta)}**")
 
-    meta_val = float(target_amount)
-    if abs(total_final - meta_val) >= 0.01:
-        st.warning(
-            f"Seu desafio tem **{n_deposits} depósitos** e aproxima sua meta de **{fmt(meta_val)}**. "
-            f"No final, o total será **{fmt(total_final)}**."
-        )
-
     st.divider()
 
     tab_visual, tab_edicao, tab_exclusao = st.tabs(["✅ Visual", "✏️ Edição", "🗑️ Exclusão / Reset"])
@@ -107,7 +105,6 @@ def render_desafio():
         cols_per_row = 10 if n_deposits >= 80 else 8 if n_deposits >= 40 else 6
         rows = math.ceil(n_deposits / cols_per_row)
 
-        # estado local (evita flicker e permite “marca na hora”)
         if "challenge_state" not in st.session_state or len(st.session_state.challenge_state) != n_deposits:
             st.session_state.challenge_state = {int(n): bool(done) for n, done in done_map.items()}
 
@@ -131,8 +128,17 @@ def render_desafio():
                     changed.append((n, new_val))
 
         if changed:
+            hoje = str(data_padrao)  # usa a data do app como base
             for n, new_val in changed:
                 toggle_savings_deposit_v2(n, new_val)
+
+                if conectar:
+                    if new_val is True:
+                        amount = float(amount_map.get(n, n))
+                        create_desafio_transaction(hoje, n, amount)
+                    else:
+                        delete_desafio_transaction(n)
+
             st.rerun()
 
         st.divider()
@@ -150,7 +156,7 @@ def render_desafio():
 
     with tab_edicao:
         st.subheader("✏️ Editar valores dos depósitos")
-        st.caption("Por padrão, o depósito N vale R$ N. Aqui você pode alterar qualquer valor (override).")
+        st.caption("Por padrão, o depósito N vale R$ N. Aqui você pode alterar qualquer valor.")
 
         edit = df[["n", "amount", "done"]].copy()
         edit["done"] = edit["done"].map({1: True, 0: False})
@@ -176,7 +182,7 @@ def render_desafio():
 
     with tab_exclusao:
         st.subheader("🗑️ Exclusão / Reset")
-        st.warning("Cuidado: essas ações são permanentes.")
+        st.warning("Cuidado: ações permanentes.")
 
         c1, c2 = st.columns(2)
         with c1:
