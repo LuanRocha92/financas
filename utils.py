@@ -1,54 +1,71 @@
+# utils.py
 import pandas as pd
-from datetime import date, timedelta
 
-def fmt_brl(v: float) -> str:
+def fmt_brl(v) -> str:
     try:
         v = float(v)
     except Exception:
         v = 0.0
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def build_cashflow(df_tx: pd.DataFrame, start: date, end_with_projection: date, only_paid: bool) -> pd.DataFrame:
+def build_cashflow(
+    df_tx: pd.DataFrame,
+    start,
+    end,
+    only_paid: bool,
+    df_adj: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """
-    Gera um DF diário com:
-    data | entrada | saida | saldo_dia | saldo_acumulado
+    Tabela diária:
+    data | entrada | saida | ajuste | saldo_dia | saldo_acumulado
+
+    - df_tx: lançamentos (date, type, amount, paid)
+    - df_adj: ajustes manuais (data, valor) -> entram como SAÍDA (reduzem o saldo)
     """
     if df_tx is None or df_tx.empty:
-        df_tx = pd.DataFrame(columns=["date","type","amount","paid"])
+        df_tx = pd.DataFrame(columns=["date", "type", "amount", "paid"])
 
     df = df_tx.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
-    df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
-    df["type"] = df["type"].astype(str).str.strip().str.lower()
-    df["paid"] = pd.to_numeric(df["paid"], errors="coerce").fillna(0).astype(int)
 
-    if only_paid:
+    if only_paid and "paid" in df.columns:
         df = df[df["paid"] == 1]
 
-    days = pd.date_range(start=start, end=end_with_projection, freq="D").date
-    out = pd.DataFrame({"data": days})
+    # normaliza
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    else:
+        df["date"] = pd.NaT
 
-    if df.empty:
-        out["entrada"] = 0.0
-        out["saida"] = 0.0
-        out["saldo_dia"] = 0.0
-        out["saldo_acumulado"] = 0.0
-        return out
+    df["type"] = df.get("type", "").astype(str).str.strip().str.lower()
+    df["amount"] = pd.to_numeric(df.get("amount", 0), errors="coerce").fillna(0.0)
 
-    piv = (
-        df.pivot_table(index="date", columns="type", values="amount", aggfunc="sum", fill_value=0.0)
-        .reset_index()
-        .rename(columns={"date": "data"})
-    )
+    # calendário diário
+    days = pd.date_range(start=start, end=end, freq="D")
+    out = pd.DataFrame({"data": days.date})
 
-    if "entrada" not in piv.columns:
-        piv["entrada"] = 0.0
-    if "saida" not in piv.columns:
-        piv["saida"] = 0.0
+    # soma entradas/saídas por dia
+    if not df.empty:
+        g_in = df[df["type"] == "entrada"].groupby("date")["amount"].sum()
+        g_out = df[df["type"] == "saida"].groupby("date")["amount"].sum()
+    else:
+        g_in = pd.Series(dtype=float)
+        g_out = pd.Series(dtype=float)
 
-    out = out.merge(piv[["data","entrada","saida"]], on="data", how="left")
-    out["entrada"] = out["entrada"].fillna(0.0)
-    out["saida"] = out["saida"].fillna(0.0)
-    out["saldo_dia"] = out["entrada"] - out["saida"]
+    out["entrada"] = out["data"].map(g_in).fillna(0.0)
+    out["saida"] = out["data"].map(g_out).fillna(0.0)
+
+    # ajustes manuais (sempre considerados como saída)
+    if df_adj is None or df_adj.empty:
+        out["ajuste"] = 0.0
+    else:
+        a = df_adj.copy()
+        a["data"] = pd.to_datetime(a["data"], errors="coerce").dt.date
+        a["valor"] = pd.to_numeric(a["valor"], errors="coerce").fillna(0.0)
+        g_adj = a.groupby("data")["valor"].sum()
+        out["ajuste"] = out["data"].map(g_adj).fillna(0.0)
+
+    # saldo do dia e acumulado
+    out["saldo_dia"] = out["entrada"] - out["saida"] - out["ajuste"]
     out["saldo_acumulado"] = out["saldo_dia"].cumsum()
+
     return out
