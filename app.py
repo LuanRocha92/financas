@@ -3,12 +3,10 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import date, timedelta
-import io, zipfile
-from pathlib import Path
 
 from db import (
-    ENGINE, IS_PG, DB_PATH,
-    init_db, ping_db,
+    init_db,
+    ping_db,
     add_transaction, fetch_transactions, delete_transaction, update_transactions_bulk,
     add_cashflow_adjustment, fetch_cashflow_adjustments, delete_cashflow_adjustment,
     add_debt, fetch_debts, mark_debt_paid, delete_debt,
@@ -17,6 +15,20 @@ from db import (
 )
 from utils import build_cashflow, fmt_brl
 from desafio import render_desafio
+
+st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
+
+# inicia abas/tabelas no Sheets
+init_db()
+
+ok, msg = ping_db()
+if ok:
+    st.sidebar.success("✅ Banco conectado (Google Sheets)")
+else:
+    st.sidebar.error("❌ Google Sheets NÃO conectou")
+    st.sidebar.caption(msg)
+    st.stop()
+
 
 # -----------------------------------
 # CONFIG
@@ -602,3 +614,4 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
+
