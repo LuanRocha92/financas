@@ -52,19 +52,30 @@ def _get_spreadsheet_id() -> str:
     return sid
 
 
-def _get_client() -> gspread.Client:
-    try:
-        sa_info = dict(st.secrets["gcp_service_account"])
-    except Exception:
-        raise RuntimeError(
-            "Credenciais do Google não encontradas. "
-            "Você precisa colocar [gcp_service_account] nos secrets do Streamlit Cloud."
-        )
+def _get_client():
+    import json
+    import gspread
+    import streamlit as st
+    from google.oauth2.service_account import Credentials
+
+    SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+
+    raw = str(st.secrets["GCP_SERVICE_ACCOUNT_JSON"]).strip()
+    sa_info = json.loads(raw)
+
+    # garante quebra de linha certa
+    sa_info["private_key"] = (
+        sa_info["private_key"]
+        .replace("\\n", "\n")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
 
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return gspread.authorize(creds)
-
-
 def _open_spreadsheet(client: gspread.Client):
     sid = _get_spreadsheet_id()
     return client.open_by_key(sid)
@@ -892,3 +903,4 @@ def delete_desafio_transaction(n: int):
     ws_link.append_row(["n", "tx_id"])
     for _, r in df_link.iterrows():
         ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
+
