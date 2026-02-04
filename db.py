@@ -1,10 +1,10 @@
 # db.py
 from __future__ import annotations
-from sqlalchemy import text
 
 import os
 from pathlib import Path
 from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
@@ -32,7 +32,18 @@ def _is_postgres(url: str) -> bool:
 _DB_URL = _get_db_url()
 _IS_PG = _is_postgres(_DB_URL)
 
-ENGINE = create_engine(_DB_URL, pool_pre_ping=True)
+ENGINE = create_engine(
+    _DB_URL,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
+def ping_db() -> tuple[bool, str]:
+    try:
+        with ENGINE.connect() as conn:
+            v = conn.execute(text("select 1")).scalar()
+        return (v == 1), "ok"
+    except Exception as e:
+        return False, str(e)
 
 
 def _now_iso() -> str:
@@ -673,5 +684,6 @@ def update_note(note_id: int, titulo: str, texto: str):
 def delete_note(note_id: int):
     with ENGINE.begin() as conn:
         conn.execute(text("DELETE FROM notes WHERE id=:id"), {"id": int(note_id)})
+
 
 
