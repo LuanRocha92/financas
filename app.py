@@ -6,6 +6,10 @@ from datetime import date, timedelta
 import io, zipfile
 from pathlib import Path
 
+# ✅ ADIÇÃO (1): imports pro teste
+from sqlalchemy import text
+from db import ENGINE  # precisa existir no db.py (no db.py novo existe)
+
 from db import (
     init_db,
     add_transaction, fetch_transactions, delete_transaction, update_transactions_bulk,
@@ -22,6 +26,14 @@ from desafio import render_desafio
 # -----------------------------------
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
 init_db()
+
+# ✅ ADIÇÃO (2): TESTE DE CONEXÃO (não altera nada do app)
+try:
+    with ENGINE.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    st.sidebar.success("✅ Banco conectado (Supabase)")
+except Exception as e:
+    st.sidebar.error(f"❌ Erro de conexão com o banco: {e}")
 
 # Tema simples (Altair)
 alt.themes.register(
@@ -363,11 +375,9 @@ elif pagina == "📆 Fluxo de Caixa":
         show["data"] = pd.to_datetime(show["data"], errors="coerce")
         show["Data"] = show["data"].dt.strftime("%d/%m/%Y")
 
-        # tabela (numérica) pra estilizar
         tab = show[["Data", "entrada", "saida", "ajuste", "saldo_dia", "saldo_acumulado"]].copy()
         tab.columns = ["Data", "Entrada", "Saída", "Ajuste (simulação)", "Saldo do dia", "Saldo acumulado"]
 
-        # aplica formatação BRL
         styled = (
             tab.style
             .format({
@@ -557,7 +567,6 @@ elif pagina == "📝 Bloco de Notas":
     if notes.empty:
         st.info("Nenhuma nota ainda.")
     else:
-        # editor pra editar direto
         edit = notes.copy()
         edit.columns = ["ID", "Título", "Conteúdo", "Criada em", "Atualizada em"]
 
@@ -571,7 +580,6 @@ elif pagina == "📝 Bloco de Notas":
         c1, c2 = st.columns([1, 1])
         with c1:
             if st.button("Salvar edições", type="primary"):
-                # salva linha a linha
                 for _, r in edited.iterrows():
                     update_note(int(r["ID"]), str(r["Título"]), str(r["Conteúdo"]))
                 st.success("Notas atualizadas.")
