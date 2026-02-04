@@ -1,6 +1,5 @@
 streamlit
 pandas
 altair
-psycopg-binary
 sqlalchemy
-
+psycopg2-binary
