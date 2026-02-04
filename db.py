@@ -1,5 +1,6 @@
 # db.py
 from __future__ import annotations
+from sqlalchemy import text
 
 import os
 from pathlib import Path
@@ -672,4 +673,5 @@ def update_note(note_id: int, titulo: str, texto: str):
 def delete_note(note_id: int):
     with ENGINE.begin() as conn:
         conn.execute(text("DELETE FROM notes WHERE id=:id"), {"id": int(note_id)})
+
 
