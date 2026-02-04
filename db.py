@@ -294,8 +294,17 @@ def fetch_transactions(date_start: str | None = None, date_end: str | None = Non
 
 def delete_transaction(tx_id: int):
     with ENGINE.begin() as conn:
-        conn.execute(text("DELETE FROM transactions WHERE id=:id"), {"id": int(tx_id)})
+        # 1) apaga links do desafio que apontam pra esse lançamento
+        conn.execute(
+            text("DELETE FROM savings_tx_link_v2 WHERE tx_id = :id"),
+            {"id": int(tx_id)}
+        )
 
+        # 2) agora apaga o lançamento
+        conn.execute(
+            text("DELETE FROM transactions WHERE id = :id"),
+            {"id": int(tx_id)}
+        )
 
 def update_transactions_bulk(df_updates: pd.DataFrame):
     if df_updates is None or df_updates.empty:
@@ -663,3 +672,4 @@ def update_note(note_id: int, titulo: str, texto: str):
 def delete_note(note_id: int):
     with ENGINE.begin() as conn:
         conn.execute(text("DELETE FROM notes WHERE id=:id"), {"id": int(note_id)})
+
