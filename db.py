@@ -7,7 +7,6 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-
 from sqlalchemy import create_engine, text
 
 DB_PATH = Path(__file__).resolve().parent / "finance.db"
@@ -30,13 +29,15 @@ def _is_postgres(url: str) -> bool:
 
 
 _DB_URL = _get_db_url()
-_IS_PG = _is_postgres(_DB_URL)
+IS_PG = _is_postgres(_DB_URL)
 
 ENGINE = create_engine(
     _DB_URL,
     pool_pre_ping=True,
     pool_recycle=300,
 )
+
+
 def ping_db() -> tuple[bool, str]:
     try:
         with ENGINE.connect() as conn:
@@ -55,7 +56,7 @@ def _now_iso() -> str:
 # -----------------------------------------
 def init_db():
     with ENGINE.begin() as conn:
-        if _IS_PG:
+        if IS_PG:
             # =========================
             # POSTGRES (Supabase)
             # =========================
@@ -243,7 +244,7 @@ def init_db():
 # TRANSACTIONS
 # -----------------------------------------
 def add_transaction(date_: str, description: str, ttype: str, amount: float, category: str, paid: int):
-    if _IS_PG:
+    if IS_PG:
         q = text("""
             INSERT INTO transactions (date, description, type, amount, category, paid)
             VALUES (:date, :description, :type, :amount, :category, :paid)
@@ -318,6 +319,7 @@ def delete_transaction(tx_id: int):
             {"id": int(tx_id)}
         )
 
+
 def update_transactions_bulk(df_updates: pd.DataFrame):
     if df_updates is None or df_updates.empty:
         return
@@ -346,7 +348,7 @@ def update_transactions_bulk(df_updates: pd.DataFrame):
 # AJUSTES DO FLUXO (SIMULAÇÃO)
 # -----------------------------------------
 def add_cashflow_adjustment(data: str, valor: float, descricao: str | None = None):
-    if _IS_PG:
+    if IS_PG:
         q = text("""
             INSERT INTO cashflow_adjustments (data, valor, descricao)
             VALUES (:data, :valor, :descricao)
@@ -392,7 +394,7 @@ def delete_cashflow_adjustment(adj_id: int):
 # DÍVIDAS
 # -----------------------------------------
 def add_debt(credor: str, descricao: str, valor: float, vencimento: str | None, prioridade: int):
-    if _IS_PG:
+    if IS_PG:
         q = text("""
             INSERT INTO debts (credor, descricao, valor, vencimento, prioridade, quitada)
             VALUES (:credor, :descricao, :valor, :vencimento, :prioridade, 0)
@@ -423,7 +425,7 @@ def add_debt(credor: str, descricao: str, valor: float, vencimento: str | None, 
 
 
 def fetch_debts(show_quitadas: bool = False) -> pd.DataFrame:
-    if _IS_PG:
+    if IS_PG:
         q = """
             SELECT id, credor, descricao, valor, vencimento, prioridade, quitada, created_at
             FROM debts
@@ -546,7 +548,7 @@ def set_savings_override_v2(n: int, amount: float | None):
         if amount is None:
             conn.execute(text("DELETE FROM savings_overrides_v2 WHERE n=:n"), {"n": int(n)})
         else:
-            if _IS_PG:
+            if IS_PG:
                 conn.execute(text("""
                     INSERT INTO savings_overrides_v2 (n, amount)
                     VALUES (:n, :a)
@@ -583,7 +585,7 @@ def create_desafio_transaction(date_: str, n: int, amount: float):
         if row:
             return int(row["tx_id"])
 
-        if _IS_PG:
+        if IS_PG:
             res = conn.execute(text("""
                 INSERT INTO transactions (date, description, type, amount, category, paid)
                 VALUES (:date, :desc, 'entrada', :amount, 'Desafio', 1)
@@ -624,7 +626,7 @@ def delete_desafio_transaction(n: int):
 # BLOCO DE NOTAS
 # -----------------------------------------
 def add_note(titulo: str, texto: str):
-    if _IS_PG:
+    if IS_PG:
         q = text("""
             INSERT INTO notes (titulo, texto, created_at, updated_at)
             VALUES (:t, :x, NOW(), NOW())
@@ -662,7 +664,7 @@ def fetch_notes() -> pd.DataFrame:
 
 
 def update_note(note_id: int, titulo: str, texto: str):
-    if _IS_PG:
+    if IS_PG:
         q = text("""
             UPDATE notes
             SET titulo=:t, texto=:x, updated_at=NOW()
@@ -684,6 +686,3 @@ def update_note(note_id: int, titulo: str, texto: str):
 def delete_note(note_id: int):
     with ENGINE.begin() as conn:
         conn.execute(text("DELETE FROM notes WHERE id=:id"), {"id": int(note_id)})
-
-
-
