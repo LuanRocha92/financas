@@ -17,8 +17,11 @@ from utils import build_cashflow, fmt_brl
 from desafio import render_desafio
 
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
+st.write("🔎 Secrets disponíveis:", list(st.secrets.keys()))
 
 # inicia abas/tabelas no Sheets
+st.write("Keys do secrets:", list(st.secrets.keys()))
+
 init_db()
 
 ok, msg = ping_db()
@@ -614,4 +617,5 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
+
 
