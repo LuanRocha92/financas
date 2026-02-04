@@ -6,12 +6,9 @@ from datetime import date, timedelta
 import io, zipfile
 from pathlib import Path
 
-# ✅ ADIÇÃO (1): imports pro teste
-from sqlalchemy import text
-from db import ENGINE  # precisa existir no db.py (no db.py novo existe)
-
 from db import (
-    init_db,
+    ENGINE, IS_PG, DB_PATH,
+    init_db, ping_db,
     add_transaction, fetch_transactions, delete_transaction, update_transactions_bulk,
     add_cashflow_adjustment, fetch_cashflow_adjustments, delete_cashflow_adjustment,
     add_debt, fetch_debts, mark_debt_paid, delete_debt,
@@ -27,23 +24,14 @@ from desafio import render_desafio
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
 init_db()
 
-from db import ping_db
-
 ok, msg = ping_db()
 if ok:
-    st.sidebar.success("Banco conectado (teste select 1 OK)")
+    st.sidebar.success("✅ Banco conectado")
+    st.sidebar.caption("Supabase (Postgres)" if IS_PG else "SQLite (local)")
 else:
-    st.sidebar.error("Banco NÃO conectou")
+    st.sidebar.error("❌ Banco NÃO conectou")
     st.sidebar.caption(msg)
     st.stop()
-
-# ✅ ADIÇÃO (2): TESTE DE CONEXÃO (não altera nada do app)
-try:
-    with ENGINE.connect() as conn:
-        conn.execute(text("SELECT 1"))
-    st.sidebar.success("✅ Banco conectado (Supabase)")
-except Exception as e:
-    st.sidebar.error(f"❌ Erro de conexão com o banco: {e}")
 
 # Tema simples (Altair)
 alt.themes.register(
@@ -97,79 +85,80 @@ st.sidebar.caption(f"{inicio.strftime('%d/%m/%Y')} - {fim.strftime('%d/%m/%Y')}"
 fim_fluxo = fim + timedelta(days=30)
 
 # -----------------------------------
-# BACKUP / RESTAURAÇÃO (finance.db)
+# BACKUP / RESTAURAÇÃO (finance.db) - SOMENTE SQLITE
 # -----------------------------------
-DB_PATH = Path(__file__).resolve().parent / "finance.db"
-
 st.sidebar.markdown("---")
 st.sidebar.markdown("## 💾 Backup")
 
-def _make_backup_zip() -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        if DB_PATH.exists():
-            z.writestr("finance.db", DB_PATH.read_bytes())
-    buf.seek(0)
-    return buf.getvalue()
-
-if DB_PATH.exists():
-    st.sidebar.download_button(
-        label="📥 Baixar backup (ZIP)",
-        data=_make_backup_zip(),
-        file_name="backup_financas.zip",
-        mime="application/zip",
-        use_container_width=True,
-    )
+if IS_PG:
+    st.sidebar.info("Você está usando Supabase (Postgres). Backup é feito pelo Supabase (não existe finance.db aqui).")
 else:
-    st.sidebar.info("Banco ainda não existe.")
+    st.sidebar.caption("Backup = seu banco de dados (finance.db).")
 
-st.sidebar.caption("Backup = seu banco de dados (finance.db).")
+    def _make_backup_zip() -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+            if DB_PATH.exists():
+                z.writestr("finance.db", DB_PATH.read_bytes())
+        buf.seek(0)
+        return buf.getvalue()
 
-st.sidebar.markdown("### 📤 Restaurar backup")
-up = st.sidebar.file_uploader("Anexar backup (.zip ou .db)", type=["zip", "db"])
+    if DB_PATH.exists():
+        st.sidebar.download_button(
+            label="📥 Baixar backup (ZIP)",
+            data=_make_backup_zip(),
+            file_name="backup_financas.zip",
+            mime="application/zip",
+            use_container_width=True,
+        )
+    else:
+        st.sidebar.info("Banco ainda não existe.")
 
-def _restore_db_from_upload(uploaded_file):
-    if uploaded_file is None:
-        return False, "Nenhum arquivo enviado."
+    st.sidebar.markdown("### 📤 Restaurar backup")
+    up = st.sidebar.file_uploader("Anexar backup (.zip ou .db)", type=["zip", "db"])
 
-    name = (uploaded_file.name or "").lower()
-    raw = uploaded_file.getvalue()
+    def _restore_db_from_upload(uploaded_file):
+        if uploaded_file is None:
+            return False, "Nenhum arquivo enviado."
 
-    try:
-        if name.endswith(".db"):
-            db_bytes = raw
-        elif name.endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
-                candidates = [n for n in z.namelist() if n.lower().endswith("finance.db")]
-                if not candidates:
-                    return False, "ZIP não contém um arquivo 'finance.db'."
-                db_bytes = z.read(candidates[0])
-        else:
-            return False, "Formato inválido."
-    except Exception as e:
-        return False, f"Falha ao ler o backup: {e}"
+        name = (uploaded_file.name or "").lower()
+        raw = uploaded_file.getvalue()
 
-    if not db_bytes or len(db_bytes) < 100:
-        return False, "Banco parece inválido."
+        try:
+            if name.endswith(".db"):
+                db_bytes = raw
+            elif name.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
+                    candidates = [n for n in z.namelist() if n.lower().endswith("finance.db")]
+                    if not candidates:
+                        return False, "ZIP não contém um arquivo 'finance.db'."
+                    db_bytes = z.read(candidates[0])
+            else:
+                return False, "Formato inválido."
+        except Exception as e:
+            return False, f"Falha ao ler o backup: {e}"
 
-    try:
-        if DB_PATH.exists():
-            old = DB_PATH.read_bytes()
-            (DB_PATH.parent / "finance_old_auto_backup.db").write_bytes(old)
-        DB_PATH.write_bytes(db_bytes)
-        return True, "Backup restaurado com sucesso!"
-    except Exception as e:
-        return False, f"Falha ao salvar o banco: {e}"
+        if not db_bytes or len(db_bytes) < 100:
+            return False, "Banco parece inválido."
 
-if up is not None:
-    st.sidebar.warning("A restauração substitui o banco atual (faço cópia local).")
-    if st.sidebar.button("✅ Restaurar agora", type="primary", use_container_width=True):
-        ok, msg = _restore_db_from_upload(up)
-        if ok:
-            st.sidebar.success(msg)
-            st.rerun()
-        else:
-            st.sidebar.error(msg)
+        try:
+            if DB_PATH.exists():
+                old = DB_PATH.read_bytes()
+                (DB_PATH.parent / "finance_old_auto_backup.db").write_bytes(old)
+            DB_PATH.write_bytes(db_bytes)
+            return True, "Backup restaurado com sucesso!"
+        except Exception as e:
+            return False, f"Falha ao salvar o banco: {e}"
+
+    if up is not None:
+        st.sidebar.warning("A restauração substitui o banco atual (faço cópia local).")
+        if st.sidebar.button("✅ Restaurar agora", type="primary", use_container_width=True):
+            ok2, msg2 = _restore_db_from_upload(up)
+            if ok2:
+                st.sidebar.success(msg2)
+                st.rerun()
+            else:
+                st.sidebar.error(msg2)
 
 # -----------------------------------
 # HELPERS
@@ -481,7 +470,10 @@ elif pagina == "📍 Mapa de Dívidas":
         valor = c3.number_input("Valor (R$)", min_value=0.0, step=50.0)
         prioridade = c4.selectbox("Prioridade", [1, 2, 3, 4, 5], index=0)
 
-        venc = st.date_input("Vencimento (opcional)", value=None)
+        tem_venc = st.checkbox("Tem vencimento?", value=False)
+        venc = None
+        if tem_venc:
+            venc = st.date_input("Vencimento", value=fim)
 
         if st.button("Salvar dívida", type="primary"):
             if not credor.strip():
@@ -610,4 +602,3 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
-
