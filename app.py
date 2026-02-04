@@ -27,6 +27,16 @@ from desafio import render_desafio
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
 init_db()
 
+from db import ping_db
+
+ok, msg = ping_db()
+if ok:
+    st.sidebar.success("Banco conectado (teste select 1 OK)")
+else:
+    st.sidebar.error("Banco NÃO conectou")
+    st.sidebar.caption(msg)
+    st.stop()
+
 # ✅ ADIÇÃO (2): TESTE DE CONEXÃO (não altera nada do app)
 try:
     with ENGINE.connect() as conn:
@@ -600,3 +610,4 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
+
