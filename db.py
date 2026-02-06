@@ -11,9 +11,6 @@ from google.oauth2.service_account import Credentials
 from gspread_dataframe import get_as_dataframe
 from gspread.exceptions import WorksheetNotFound, APIError
 
-# =========================
-# CONFIG
-# =========================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
@@ -30,9 +27,6 @@ TAB_SAVINGS_OVERRIDES = "savings_overrides_v2"
 TAB_SAVINGS_TX_LINK = "savings_tx_link_v2"
 
 
-# =========================
-# HELPERS
-# =========================
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -43,13 +37,11 @@ def _get_spreadsheet_id() -> str:
         sid = st.secrets.get("GSHEETS_SPREADSHEET_ID", "")
     except Exception:
         sid = ""
-
     sid = str(sid).strip()
     if not sid:
         raise RuntimeError(
             "GSHEETS_SPREADSHEET_ID não encontrado nos secrets. "
-            "Coloque no Streamlit Secrets algo como:\n"
-            'GSHEETS_SPREADSHEET_ID = "SEU_ID_AQUI"'
+            'Ex: GSHEETS_SPREADSHEET_ID = "SEU_ID_AQUI"'
         )
     return sid
 
@@ -57,7 +49,6 @@ def _get_spreadsheet_id() -> str:
 def _get_client() -> gspread.Client:
     if "gcp_service_account" not in st.secrets:
         raise RuntimeError("Secrets não configurado. Falta [gcp_service_account] no Streamlit.")
-
     sa_info = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return gspread.authorize(creds)
@@ -81,10 +72,9 @@ def _open_spreadsheet(client: gspread.Client):
             f"- Service Account: {sa_email}\n\n"
             "Checklist:\n"
             "1) A planilha foi compartilhada com esse e-mail como EDITOR.\n"
-            "2) No Google Cloud do projeto dessa Service Account, as APIs estão ATIVAS:\n"
+            "2) Ative as APIs no Google Cloud do projeto da Service Account:\n"
             "   - Google Sheets API\n"
             "   - Google Drive API\n"
-            "3) O ID acima é o mesmo do link da planilha (entre /d/ e /edit).\n"
         ) from e
 
 
@@ -146,46 +136,31 @@ def _next_id(df: pd.DataFrame) -> int:
     return int(s.max()) + 1 if not s.empty else 1
 
 
-# =========================
-# INIT "DB"
-# =========================
 def init_db():
     client = _get_client()
     sh = _open_spreadsheet(client)
 
     _ensure_worksheet(
         sh, TAB_TRANSACTIONS,
-        headers=["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
+        ["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
     )
     _ensure_worksheet(
         sh, TAB_ADJUSTMENTS,
-        headers=["id", "data", "valor", "descricao", "created_at"]
+        ["id", "data", "valor", "descricao", "created_at"]
     )
     _ensure_worksheet(
         sh, TAB_DEBTS,
-        headers=["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
+        ["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
     )
     _ensure_worksheet(
         sh, TAB_NOTES,
-        headers=["id", "titulo", "texto", "created_at", "updated_at"]
+        ["id", "titulo", "texto", "created_at", "updated_at"]
     )
 
-    _ensure_worksheet(
-        sh, TAB_SAVINGS_GOAL,
-        headers=["id", "target_amount", "due_date", "n_deposits"]
-    )
-    _ensure_worksheet(
-        sh, TAB_SAVINGS_DEPOSITS,
-        headers=["n", "done"]
-    )
-    _ensure_worksheet(
-        sh, TAB_SAVINGS_OVERRIDES,
-        headers=["n", "amount"]
-    )
-    _ensure_worksheet(
-        sh, TAB_SAVINGS_TX_LINK,
-        headers=["n", "tx_id"]
-    )
+    _ensure_worksheet(sh, TAB_SAVINGS_GOAL, ["id", "target_amount", "due_date", "n_deposits"])
+    _ensure_worksheet(sh, TAB_SAVINGS_DEPOSITS, ["n", "done"])
+    _ensure_worksheet(sh, TAB_SAVINGS_OVERRIDES, ["n", "amount"])
+    _ensure_worksheet(sh, TAB_SAVINGS_TX_LINK, ["n", "tx_id"])
 
     ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
     df_goal = _ws_to_df(ws_goal)
@@ -266,13 +241,11 @@ def delete_transaction(tx_id: int):
     df = _ws_to_df(ws)
     if df.empty:
         return
-
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
     df = df[df["id"] != tx_id]
 
     ws.clear()
-    headers = ["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "date", "description", "type", "amount", "category", "paid", "created_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -317,8 +290,7 @@ def update_transactions_bulk(df_updates: pd.DataFrame):
         df.loc[mask, "paid"] = str(int(r.get("paid", 0)))
 
     ws.clear()
-    headers = ["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "date", "description", "type", "amount", "category", "paid", "created_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -350,8 +322,7 @@ def add_cashflow_adjustment(data: str, valor: float, descricao: str | None = Non
         "descricao": (descricao or "").strip(),
         "created_at": _now_iso(),
     }
-    headers = ["id", "data", "valor", "descricao", "created_at"]
-    _append_row(ws, row, headers)
+    _append_row(ws, row, ["id", "data", "valor", "descricao", "created_at"])
 
 
 def fetch_cashflow_adjustments(date_start: str, date_end: str) -> pd.DataFrame:
@@ -386,8 +357,7 @@ def delete_cashflow_adjustment(adj_id: int):
     df = df[df["id"] != adj_id]
 
     ws.clear()
-    headers = ["id", "data", "valor", "descricao", "created_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "data", "valor", "descricao", "created_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -419,8 +389,7 @@ def add_debt(credor: str, descricao: str, valor: float, vencimento: str | None, 
         "quitada": "0",
         "created_at": _now_iso(),
     }
-    headers = ["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
-    _append_row(ws, row, headers)
+    _append_row(ws, row, ["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"])
 
 
 def fetch_debts(show_quitadas: bool = False) -> pd.DataFrame:
@@ -463,8 +432,7 @@ def mark_debt_paid(debt_id: int, paid: bool):
     df.loc[mask, "quitada"] = "1" if paid else "0"
 
     ws.clear()
-    headers = ["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -492,8 +460,7 @@ def delete_debt(debt_id: int):
     df = df[df["id"] != debt_id]
 
     ws.clear()
-    headers = ["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -526,8 +493,7 @@ def add_note(titulo: str, texto: str):
         "created_at": now,
         "updated_at": now,
     }
-    headers = ["id", "titulo", "texto", "created_at", "updated_at"]
-    _append_row(ws, row, headers)
+    _append_row(ws, row, ["id", "titulo", "texto", "created_at", "updated_at"])
 
 
 def fetch_notes() -> pd.DataFrame:
@@ -540,10 +506,8 @@ def fetch_notes() -> pd.DataFrame:
         return pd.DataFrame(columns=["id","titulo","texto","created_at","updated_at"])
 
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
-
     df["created_at"] = pd.to_datetime(df.get("created_at", ""), errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
     df["updated_at"] = pd.to_datetime(df.get("updated_at", ""), errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
-
     df = df.sort_values(["updated_at", "id"], ascending=[False, False])
     return df[["id","titulo","texto","created_at","updated_at"]].copy()
 
@@ -568,8 +532,7 @@ def update_note(note_id: int, titulo: str, texto: str):
     df.loc[mask, "updated_at"] = _now_iso()
 
     ws.clear()
-    headers = ["id", "titulo", "texto", "created_at", "updated_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "titulo", "texto", "created_at", "updated_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -594,8 +557,7 @@ def delete_note(note_id: int):
     df = df[df["id"] != note_id]
 
     ws.clear()
-    headers = ["id", "titulo", "texto", "created_at", "updated_at"]
-    ws.append_row(headers)
+    ws.append_row(["id", "titulo", "texto", "created_at", "updated_at"])
     for _, r in df.iterrows():
         ws.append_row([
             str(r.get("id", "")),
@@ -607,7 +569,7 @@ def delete_note(note_id: int):
 
 
 # =========================
-# DESAFIO v2 (Sheets)
+# DESAFIO v2
 # =========================
 def _min_n_for_target(target: float) -> int:
     if target <= 0:
@@ -626,8 +588,6 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     sh = _open_spreadsheet(client)
 
     ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
-    df_goal = _ws_to_df(ws_goal)
-
     ws_goal.clear()
     ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
     ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
@@ -717,3 +677,158 @@ def fetch_savings_deposits_v2_with_amount() -> pd.DataFrame:
     merged = dep.merge(ov, on="n", how="left", suffixes=("", "_ov"))
     merged["amount"] = merged["amount"].fillna(merged["n"].astype(float))
     return merged[["n", "done", "amount"]].sort_values("n")
+
+
+def toggle_savings_deposit_v2(n: int, done: bool):
+    n = int(n)
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+    ws = sh.worksheet(TAB_SAVINGS_DEPOSITS)
+
+    df = _ws_to_df(ws)
+    if df.empty:
+        return
+
+    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
+    mask = df["n"] == n
+    if not mask.any():
+        return
+
+    df.loc[mask, "done"] = "1" if bool(done) else "0"
+
+    ws.clear()
+    ws.append_row(["n", "done"])
+    for _, r in df.sort_values("n").iterrows():
+        ws.append_row([str(int(r.get("n", 0))), str(r.get("done", "0"))])
+
+
+def set_savings_override_v2(n: int, amount: float | None):
+    n = int(n)
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+    ws = sh.worksheet(TAB_SAVINGS_OVERRIDES)
+
+    df = _ws_to_df(ws)
+    if df.empty:
+        df = pd.DataFrame(columns=["n", "amount"])
+
+    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
+
+    if amount is None:
+        df = df[df["n"] != n]
+    else:
+        amount = float(amount)
+        if (df["n"] == n).any():
+            df.loc[df["n"] == n, "amount"] = str(amount)
+        else:
+            df = pd.concat([df, pd.DataFrame([{"n": n, "amount": str(amount)}])], ignore_index=True)
+
+    ws.clear()
+    ws.append_row(["n", "amount"])
+    for _, r in df.sort_values("n").iterrows():
+        ws.append_row([str(int(r.get("n", 0))), str(r.get("amount", ""))])
+
+
+def reset_savings_marks_v2():
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+
+    ws = sh.worksheet(TAB_SAVINGS_DEPOSITS)
+    df = _ws_to_df(ws)
+    if df.empty:
+        return
+
+    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
+    df["done"] = "0"
+
+    ws.clear()
+    ws.append_row(["n", "done"])
+    for _, r in df.sort_values("n").iterrows():
+        ws.append_row([str(int(r.get("n", 0))), "0"])
+
+    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
+    ws_link.clear()
+    ws_link.append_row(["n", "tx_id"])
+
+
+def clear_savings_goal_v2():
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+
+    ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
+    ws_goal.clear()
+    ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
+    ws_goal.append_row(["1", "", "", ""])
+
+    for tab, headers in [
+        (TAB_SAVINGS_DEPOSITS, ["n", "done"]),
+        (TAB_SAVINGS_OVERRIDES, ["n", "amount"]),
+        (TAB_SAVINGS_TX_LINK, ["n", "tx_id"]),
+    ]:
+        ws = sh.worksheet(tab)
+        ws.clear()
+        ws.append_row(headers)
+
+
+def create_desafio_transaction(date_: str, n: int, amount: float):
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+
+    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
+    df_link = _ws_to_df(ws_link)
+    if not df_link.empty:
+        df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
+        row = df_link[df_link["n"] == int(n)]
+        if not row.empty:
+            tx_id = row.iloc[0].get("tx_id", "")
+            if str(tx_id).strip():
+                return int(float(tx_id))
+
+    add_transaction(
+        date_=str(date_),
+        description=f"Desafio - Depósito #{int(n)}",
+        ttype="entrada",
+        amount=float(amount),
+        category="Desafio",
+        paid=1,
+    )
+
+    df_tx = fetch_transactions(None, None)
+    tx_id = int(df_tx["id"].max()) if not df_tx.empty else 1
+
+    if df_link.empty:
+        df_link = pd.DataFrame(columns=["n", "tx_id"])
+    df_link = pd.concat([df_link, pd.DataFrame([{"n": int(n), "tx_id": int(tx_id)}])], ignore_index=True)
+
+    ws_link.clear()
+    ws_link.append_row(["n", "tx_id"])
+    for _, r in df_link.iterrows():
+        ws_link.append_row([str(int(float(r.get("n", 0)))), str(int(float(r.get("tx_id", 0))))])
+
+    return int(tx_id)
+
+
+def delete_desafio_transaction(n: int):
+    n = int(n)
+    client = _get_client()
+    sh = _open_spreadsheet(client)
+
+    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
+    df_link = _ws_to_df(ws_link)
+    if df_link.empty:
+        return
+
+    df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
+    row = df_link[df_link["n"] == n]
+    if row.empty:
+        return
+
+    tx_id = row.iloc[0].get("tx_id", "")
+    if str(tx_id).strip():
+        delete_transaction(int(float(tx_id)))
+
+    df_link = df_link[df_link["n"] != n]
+    ws_link.clear()
+    ws_link.append_row(["n", "tx_id"])
+    for _, r in df_link.iterrows():
+        ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
