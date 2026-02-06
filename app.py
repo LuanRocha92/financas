@@ -16,13 +16,24 @@ from db import (
 from utils import build_cashflow, fmt_brl
 from desafio import render_desafio
 
+# -----------------------------------
+# CONFIG INICIAL
+# -----------------------------------
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
-st.write("🔎 Secrets disponíveis:", list(st.secrets.keys()))
 
-# inicia abas/tabelas no Sheets
+# Debug: mostrar secrets disponíveis
+st.write("🔎 Secrets disponíveis:", list(st.secrets.keys()))
 st.write("Keys do secrets:", list(st.secrets.keys()))
 
-init_db()
+# -----------------------------------
+# INICIALIZA DB (GOOGLE SHEETS) COM ERRO VISÍVEL
+# -----------------------------------
+try:
+    init_db()
+except Exception as e:
+    st.error("Erro ao inicializar o banco (Google Sheets):")
+    st.code(str(e))
+    raise
 
 ok, msg = ping_db()
 if ok:
@@ -32,23 +43,9 @@ else:
     st.sidebar.caption(msg)
     st.stop()
 
-
 # -----------------------------------
-# CONFIG
+# TEMA (ALTAIR)
 # -----------------------------------
-st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
-init_db()
-
-ok, msg = ping_db()
-if ok:
-    st.sidebar.success("✅ Banco conectado")
-    st.sidebar.caption("Supabase (Postgres)" if IS_PG else "SQLite (local)")
-else:
-    st.sidebar.error("❌ Banco NÃO conectou")
-    st.sidebar.caption(msg)
-    st.stop()
-
-# Tema simples (Altair)
 alt.themes.register(
     "refinado",
     lambda: {
@@ -67,7 +64,7 @@ alt.themes.register(
 alt.themes.enable("refinado")
 
 # -----------------------------------
-# DATA (UMA SÓ) QUE MANDA NO APP TODO
+# DATA BASE (UMA SÓ) QUE MANDA NO APP TODO
 # -----------------------------------
 def _first_day_of_month(d: date) -> date:
     return d.replace(day=1)
@@ -90,7 +87,6 @@ st.sidebar.markdown("## 📅 Data")
 data_base = st.sidebar.date_input("Data", st.session_state.data_base)
 st.session_state.data_base = data_base
 
-# período automático: início do mês até a data escolhida
 inicio = _first_day_of_month(data_base)
 fim = data_base
 
@@ -100,90 +96,8 @@ st.sidebar.caption(f"{inicio.strftime('%d/%m/%Y')} - {fim.strftime('%d/%m/%Y')}"
 fim_fluxo = fim + timedelta(days=30)
 
 # -----------------------------------
-# BACKUP / RESTAURAÇÃO (finance.db) - SOMENTE SQLITE
-# -----------------------------------
-st.sidebar.markdown("---")
-st.sidebar.markdown("## 💾 Backup")
-
-if IS_PG:
-    st.sidebar.info("Você está usando Supabase (Postgres). Backup é feito pelo Supabase (não existe finance.db aqui).")
-else:
-    st.sidebar.caption("Backup = seu banco de dados (finance.db).")
-
-    def _make_backup_zip() -> bytes:
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
-            if DB_PATH.exists():
-                z.writestr("finance.db", DB_PATH.read_bytes())
-        buf.seek(0)
-        return buf.getvalue()
-
-    if DB_PATH.exists():
-        st.sidebar.download_button(
-            label="📥 Baixar backup (ZIP)",
-            data=_make_backup_zip(),
-            file_name="backup_financas.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-    else:
-        st.sidebar.info("Banco ainda não existe.")
-
-    st.sidebar.markdown("### 📤 Restaurar backup")
-    up = st.sidebar.file_uploader("Anexar backup (.zip ou .db)", type=["zip", "db"])
-
-    def _restore_db_from_upload(uploaded_file):
-        if uploaded_file is None:
-            return False, "Nenhum arquivo enviado."
-
-        name = (uploaded_file.name or "").lower()
-        raw = uploaded_file.getvalue()
-
-        try:
-            if name.endswith(".db"):
-                db_bytes = raw
-            elif name.endswith(".zip"):
-                with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
-                    candidates = [n for n in z.namelist() if n.lower().endswith("finance.db")]
-                    if not candidates:
-                        return False, "ZIP não contém um arquivo 'finance.db'."
-                    db_bytes = z.read(candidates[0])
-            else:
-                return False, "Formato inválido."
-        except Exception as e:
-            return False, f"Falha ao ler o backup: {e}"
-
-        if not db_bytes or len(db_bytes) < 100:
-            return False, "Banco parece inválido."
-
-        try:
-            if DB_PATH.exists():
-                old = DB_PATH.read_bytes()
-                (DB_PATH.parent / "finance_old_auto_backup.db").write_bytes(old)
-            DB_PATH.write_bytes(db_bytes)
-            return True, "Backup restaurado com sucesso!"
-        except Exception as e:
-            return False, f"Falha ao salvar o banco: {e}"
-
-    if up is not None:
-        st.sidebar.warning("A restauração substitui o banco atual (faço cópia local).")
-        if st.sidebar.button("✅ Restaurar agora", type="primary", use_container_width=True):
-            ok2, msg2 = _restore_db_from_upload(up)
-            if ok2:
-                st.sidebar.success(msg2)
-                st.rerun()
-            else:
-                st.sidebar.error(msg2)
-
-# -----------------------------------
 # HELPERS
 # -----------------------------------
-def _safe_float(x):
-    try:
-        return float(x)
-    except Exception:
-        return 0.0
-
 def _style_pos_neg(v: float):
     try:
         v = float(v)
@@ -213,7 +127,7 @@ if pagina == "💰 Visão Geral":
     saidas = df.loc[df["type"] == "saida", "amount"].sum() if not df.empty else 0.0
     saldo = entradas - saidas
 
-    # --- resumo do desafio (investimento / guardado) ---
+    # --- resumo do desafio ---
     dep = fetch_savings_deposits_v2_with_amount()
     if dep is None or dep.empty:
         guardado = 0.0
@@ -235,7 +149,7 @@ if pagina == "💰 Visão Geral":
 
     st.divider()
 
-    # --- panorama próximos 7 dias (entradas/saídas/ajustes) ---
+    # --- próximos 7 dias ---
     st.subheader("📅 Próximos 7 dias (panorama)")
     start7 = fim
     end7 = fim + timedelta(days=7)
@@ -418,11 +332,6 @@ elif pagina == "📆 Fluxo de Caixa":
             .encode(
                 x=alt.X("data:T", title="Data"),
                 y=alt.Y("saldo_acumulado:Q", title="Saldo acumulado (R$)"),
-                color=alt.condition(
-                    alt.datum.saldo_acumulado >= 0,
-                    alt.value("#22c55e"),
-                    alt.value("#ff4d4f"),
-                ),
                 tooltip=[
                     alt.Tooltip("data:T", title="Data", format="%d/%m/%Y"),
                     alt.Tooltip("saldo_acumulado:Q", title="Saldo"),
@@ -434,7 +343,7 @@ elif pagina == "📆 Fluxo de Caixa":
 
     with tab_ajustes:
         st.subheader("🧮 Ajustes manuais (simular gastos)")
-        st.caption("Aqui você coloca um valor (ex: 100) como uma SAÍDA simulada. Isso impacta o saldo do dia e todos os próximos dias.")
+        st.caption("Aqui você coloca um valor como uma SAÍDA simulada. Isso impacta o saldo do dia e os próximos dias.")
 
         c1, c2, c3 = st.columns([1, 1, 2])
         data_adj = c1.date_input("Data do ajuste", value=fim)
@@ -446,7 +355,7 @@ elif pagina == "📆 Fluxo de Caixa":
                 st.warning("Informe um valor maior que zero.")
             else:
                 add_cashflow_adjustment(str(data_adj), float(valor_adj), desc_adj)
-                st.success("Ajuste adicionado. Volte na aba Fluxo para ver o impacto.")
+                st.success("Ajuste adicionado.")
                 st.rerun()
 
         st.divider()
@@ -476,7 +385,7 @@ elif pagina == "📆 Fluxo de Caixa":
 # =========================
 elif pagina == "📍 Mapa de Dívidas":
     st.title("📍 Mapa de Dívidas")
-    st.caption("Dívidas que você quer quitar na primeira oportunidade (pra não esquecer).")
+    st.caption("Dívidas que você quer quitar na primeira oportunidade.")
 
     with st.expander("➕ Nova dívida", expanded=True):
         c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
@@ -563,7 +472,7 @@ elif pagina == "📍 Mapa de Dívidas":
 # =========================
 elif pagina == "📝 Bloco de Notas":
     st.title("📝 Bloco de Notas")
-    st.caption("Anotações rápidas pra não esquecer (ideias, contas, lembretes, etc).")
+    st.caption("Anotações rápidas.")
 
     with st.expander("➕ Nova nota", expanded=True):
         titulo = st.text_input("Título", placeholder="Ex: metas do mês, compras, lembretes...")
@@ -617,5 +526,3 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
-
-
