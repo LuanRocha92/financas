@@ -21,26 +21,23 @@ from desafio import render_desafio
 # -----------------------------------
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
 
-# Debug: mostrar secrets disponíveis
-st.write("🔎 Secrets disponíveis:", list(st.secrets.keys()))
-st.write("Keys do secrets:", list(st.secrets.keys()))
-
 # -----------------------------------
-# INICIALIZA DB (GOOGLE SHEETS) COM ERRO VISÍVEL
+# INICIALIZA DB (GOOGLE SHEETS) - SEM POLUIR O TOPO
 # -----------------------------------
 try:
     init_db()
-except Exception as e:
-    st.error("Erro ao inicializar o banco (Google Sheets):")
-    st.code(str(e))
-    raise
-
-ok, msg = ping_db()
-if ok:
+    ok, msg = ping_db()
+    if not ok:
+        st.sidebar.error("❌ Google Sheets NÃO conectou")
+        st.sidebar.caption(msg)
+        st.error("❌ Não foi possível conectar no Google Sheets.")
+        st.caption(msg)
+        st.stop()
     st.sidebar.success("✅ Banco conectado (Google Sheets)")
-else:
-    st.sidebar.error("❌ Google Sheets NÃO conectou")
-    st.sidebar.caption(msg)
+except Exception as e:
+    st.sidebar.error("❌ Erro ao inicializar DB")
+    st.error("❌ Erro ao inicializar o banco (Google Sheets)")
+    st.exception(e)
     st.stop()
 
 # -----------------------------------
@@ -91,8 +88,6 @@ inicio = _first_day_of_month(data_base)
 fim = data_base
 
 st.sidebar.caption(f"{inicio.strftime('%d/%m/%Y')} - {fim.strftime('%d/%m/%Y')}")
-
-# projeção do fluxo (+30 dias)
 fim_fluxo = fim + timedelta(days=30)
 
 # -----------------------------------
@@ -127,7 +122,6 @@ if pagina == "💰 Visão Geral":
     saidas = df.loc[df["type"] == "saida", "amount"].sum() if not df.empty else 0.0
     saldo = entradas - saidas
 
-    # --- resumo do desafio ---
     dep = fetch_savings_deposits_v2_with_amount()
     if dep is None or dep.empty:
         guardado = 0.0
@@ -149,7 +143,6 @@ if pagina == "💰 Visão Geral":
 
     st.divider()
 
-    # --- próximos 7 dias ---
     st.subheader("📅 Próximos 7 dias (panorama)")
     start7 = fim
     end7 = fim + timedelta(days=7)
@@ -526,3 +519,9 @@ elif pagina == "📝 Bloco de Notas":
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
+
+# -----------------------------------
+# DEBUG NO FINAL (OPCIONAL) — NÃO POLUI O TOPO
+# -----------------------------------
+with st.expander("🛠️ Debug (Secrets)", expanded=False):
+    st.write("Secrets disponíveis:", list(st.secrets.keys()))
