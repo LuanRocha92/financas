@@ -53,27 +53,17 @@ def _get_spreadsheet_id() -> str:
 
 
 def _get_client() -> gspread.Client:
+    # cliente gspread usando service account no st.secrets
     if "gcp_service_account" not in st.secrets:
-        raise RuntimeError("Secrets não configurado. Falta [gcp_service_account] no Streamlit.")
+        raise RuntimeError(
+            "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
+        )
 
     sa_info = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return gspread.authorize(creds)
 
-    
-   def _get_sa_info():
-    if "gcp_service_account" not in st.secrets:
-        raise RuntimeError(
-            "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
-        )
-    return dict(st.secrets["gcp_service_account"])
-       
-    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
-    return gspread.authorize(creds)
 
-
-    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
-    return gspread.authorize(creds)
 def _open_spreadsheet(client: gspread.Client):
     sid = _get_spreadsheet_id()
     return client.open_by_key(sid)
@@ -458,7 +448,6 @@ def fetch_debts(show_quitadas: bool = False) -> pd.DataFrame:
     if not show_quitadas:
         df = df[df["quitada"] == 0]
 
-    # ordenação simples
     df = df.sort_values(["prioridade", "vencimento", "id"], ascending=[True, True, False])
     return df[["id","credor","descricao","valor","vencimento","prioridade","quitada","created_at"]].copy()
 
@@ -558,7 +547,6 @@ def fetch_notes() -> pd.DataFrame:
 
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
 
-    # formato amigável
     df["created_at"] = pd.to_datetime(df.get("created_at", ""), errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
     df["updated_at"] = pd.to_datetime(df.get("updated_at", ""), errors="coerce").dt.strftime("%d/%m/%Y %H:%M")
 
@@ -649,12 +637,10 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     if df_goal.empty:
         ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
     else:
-        # regrava goal inteiro simples (uso pessoal)
         ws_goal.clear()
         ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
         ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
 
-    # deposits
     ws_dep = sh.worksheet(TAB_SAVINGS_DEPOSITS)
     df_dep = _ws_to_df(ws_dep)
     existing = {}
@@ -666,15 +652,11 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     ws_dep.clear()
     ws_dep.append_row(["n", "done"])
     for i in range(1, n + 1):
-        done = existing.get(i, 0)
-        ws_dep.append_row([str(i), str(done)])
+        ws_dep.append_row([str(i), str(existing.get(i, 0))])
 
-    # overrides e link: mantém só até n
     ws_ov = sh.worksheet(TAB_SAVINGS_OVERRIDES)
     df_ov = _ws_to_df(ws_ov)
-    if df_ov.empty:
-        pass
-    else:
+    if not df_ov.empty:
         df_ov["n"] = pd.to_numeric(df_ov.get("n", 0), errors="coerce").fillna(0).astype(int)
         df_ov = df_ov[df_ov["n"] <= n]
         ws_ov.clear()
@@ -684,9 +666,7 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
 
     ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
     df_link = _ws_to_df(ws_link)
-    if df_link.empty:
-        pass
-    else:
+    if not df_link.empty:
         df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
         df_link = df_link[df_link["n"] <= n]
         ws_link.clear()
@@ -703,7 +683,6 @@ def get_savings_goal_v2():
     if df.empty:
         return None, None, None
 
-    # pega id=1
     row = df[df.get("id", "") == "1"]
     if row.empty:
         return None, None, None
@@ -836,7 +815,6 @@ def clear_savings_goal_v2():
 
 
 def create_desafio_transaction(date_: str, n: int, amount: float):
-    # cria entrada na transactions e grava link n -> tx_id
     client = _get_client()
     sh = _open_spreadsheet(client)
 
@@ -850,7 +828,6 @@ def create_desafio_transaction(date_: str, n: int, amount: float):
             if str(tx_id).strip():
                 return int(float(tx_id))
 
-    # cria transação
     add_transaction(
         date_=str(date_),
         description=f"Desafio - Depósito #{int(n)}",
@@ -860,11 +837,9 @@ def create_desafio_transaction(date_: str, n: int, amount: float):
         paid=1,
     )
 
-    # pega último id inserido (mais simples)
     df_tx = fetch_transactions(None, None)
     tx_id = int(df_tx["id"].max()) if not df_tx.empty else 1
 
-    # grava link
     if df_link.empty:
         df_link = pd.DataFrame(columns=["n", "tx_id"])
     df_link = pd.concat([df_link, pd.DataFrame([{"n": int(n), "tx_id": int(tx_id)}])], ignore_index=True)
@@ -901,7 +876,3 @@ def delete_desafio_transaction(n: int):
     ws_link.append_row(["n", "tx_id"])
     for _, r in df_link.iterrows():
         ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
-
-
-
-
