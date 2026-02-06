@@ -18,8 +18,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive",  # permite ler/criar abas e operar melhor
 ]
 
-SHEET_ID = None
-
 # Nomes das "tabelas" (abas)
 TAB_TRANSACTIONS = "transactions"
 TAB_ADJUSTMENTS = "cashflow_adjustments"
@@ -32,12 +30,16 @@ TAB_SAVINGS_OVERRIDES = "savings_overrides_v2"
 TAB_SAVINGS_TX_LINK = "savings_tx_link_v2"
 
 
+# =========================
+# HELPERS
+# =========================
+
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
 
 def _get_spreadsheet_id() -> str:
-    # Streamlit Cloud: usar secrets
+    sid = ""
     try:
         sid = st.secrets.get("GSHEETS_SPREADSHEET_ID", "")
     except Exception:
@@ -47,13 +49,13 @@ def _get_spreadsheet_id() -> str:
     if not sid:
         raise RuntimeError(
             "GSHEETS_SPREADSHEET_ID não encontrado nos secrets. "
-            "Crie uma planilha no Google Sheets, pegue o ID do link e coloque em Secrets."
+            "Coloque no Streamlit Secrets algo como:\n"
+            'GSHEETS_SPREADSHEET_ID = "SEU_ID_AQUI"'
         )
     return sid
 
 
 def _get_client() -> gspread.Client:
-    # cliente gspread usando service account no st.secrets
     if "gcp_service_account" not in st.secrets:
         raise RuntimeError(
             "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
@@ -66,7 +68,29 @@ def _get_client() -> gspread.Client:
 
 def _open_spreadsheet(client: gspread.Client):
     sid = _get_spreadsheet_id()
-    return client.open_by_key(sid)
+
+    # pega email do SA (pra te ajudar a diagnosticar permissão)
+    sa_email = "desconhecido"
+    try:
+        sa_email = dict(st.secrets["gcp_service_account"]).get("client_email", "desconhecido")
+    except Exception:
+        sa_email = "desconhecido"
+
+    try:
+        return client.open_by_key(sid)
+    except Exception as e:
+        # mensagem clara, sem vazar segredo
+        raise RuntimeError(
+            "Não consegui abrir a planilha no Google Sheets.\n"
+            f"- Spreadsheet ID: {sid}\n"
+            f"- Service Account: {sa_email}\n\n"
+            "Checklist:\n"
+            "1) A planilha foi compartilhada com esse e-mail como EDITOR.\n"
+            "2) No Google Cloud do projeto dessa Service Account, as APIs estão ATIVAS:\n"
+            "   - Google Sheets API\n"
+            "   - Google Drive API\n"
+            "3) O ID acima é o mesmo do link da planilha (entre /d/ e /edit).\n"
+        ) from e
 
 
 def ping_db() -> tuple[bool, str]:
@@ -95,8 +119,6 @@ def _ensure_worksheet(sh, title: str, headers: list[str]):
 
     first_row = values[0]
     if [c.strip() for c in first_row] != headers:
-        # Se existe mas cabeçalho não bate, a gente reescreve o cabeçalho (mantendo dados)
-        # (pra uso pessoal, isso é ok)
         ws.update("A1", [headers])
 
     return ws
@@ -107,8 +129,7 @@ def _ws_to_df(ws) -> pd.DataFrame:
     Lê aba inteira como DataFrame.
     """
     df = get_as_dataframe(ws, evaluate_formulas=True, header=0, dtype=str)
-    df = df.dropna(how="all")  # remove linhas totalmente vazias
-    # normaliza nomes de coluna
+    df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
@@ -230,13 +251,10 @@ def fetch_transactions(date_start: str | None = None, date_end: str | None = Non
     if df.empty:
         return pd.DataFrame(columns=["id", "date", "description", "type", "amount", "category", "paid"])
 
-    # normaliza
     df["amount"] = pd.to_numeric(df.get("amount", 0), errors="coerce").fillna(0.0)
     df["paid"] = pd.to_numeric(df.get("paid", 0), errors="coerce").fillna(0).astype(int)
     df["type"] = df.get("type", "").astype(str).str.strip().str.lower()
     df["category"] = df.get("category", "Outros").astype(str).fillna("Outros")
-
-    # datas (guardadas como yyyy-mm-dd)
     df["date"] = df.get("date", "").astype(str)
 
     if date_start:
@@ -244,7 +262,6 @@ def fetch_transactions(date_start: str | None = None, date_end: str | None = Non
     if date_end:
         df = df[df["date"] <= str(date_end)]
 
-    # id numérico
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
 
     df = df.sort_values(["date", "id"], ascending=[False, False])
@@ -308,7 +325,6 @@ def update_transactions_bulk(df_updates: pd.DataFrame):
     upd = df_updates.copy()
     upd["id"] = pd.to_numeric(upd["id"], errors="coerce").fillna(0).astype(int)
 
-    # atualiza em memória
     for _, r in upd.iterrows():
         rid = int(r["id"])
         mask = df["id"] == rid
@@ -322,7 +338,6 @@ def update_transactions_bulk(df_updates: pd.DataFrame):
         df.loc[mask, "category"] = cat if cat else "Outros"
         df.loc[mask, "paid"] = str(int(r.get("paid", 0)))
 
-    # regrava
     ws.clear()
     headers = ["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
     ws.append_row(headers)
@@ -652,7 +667,8 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     ws_dep.clear()
     ws_dep.append_row(["n", "done"])
     for i in range(1, n + 1):
-        ws_dep.append_row([str(i), str(existing.get(i, 0))])
+        done = existing.get(i, 0)
+        ws_dep.append_row([str(i), str(done)])
 
     ws_ov = sh.worksheet(TAB_SAVINGS_OVERRIDES)
     df_ov = _ws_to_df(ws_ov)
