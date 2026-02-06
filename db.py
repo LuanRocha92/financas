@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 import pandas as pd
 import streamlit as st
 
@@ -10,17 +11,14 @@ from google.oauth2.service_account import Credentials
 from gspread_dataframe import get_as_dataframe
 from gspread.exceptions import WorksheetNotFound, APIError
 
-
 # =========================
 # CONFIG
 # =========================
-
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",  # permite ler/criar abas e operar melhor
+    "https://www.googleapis.com/auth/drive",
 ]
 
-# Nomes das "tabelas" (abas)
 TAB_TRANSACTIONS = "transactions"
 TAB_ADJUSTMENTS = "cashflow_adjustments"
 TAB_DEBTS = "debts"
@@ -35,7 +33,6 @@ TAB_SAVINGS_TX_LINK = "savings_tx_link_v2"
 # =========================
 # HELPERS
 # =========================
-
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -59,9 +56,7 @@ def _get_spreadsheet_id() -> str:
 
 def _get_client() -> gspread.Client:
     if "gcp_service_account" not in st.secrets:
-        raise RuntimeError(
-            "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
-        )
+        raise RuntimeError("Secrets não configurado. Falta [gcp_service_account] no Streamlit.")
 
     sa_info = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
@@ -71,17 +66,15 @@ def _get_client() -> gspread.Client:
 def _open_spreadsheet(client: gspread.Client):
     sid = _get_spreadsheet_id()
 
-    # pega email do SA (pra te ajudar a diagnosticar permissão)
     sa_email = "desconhecido"
     try:
         sa_email = dict(st.secrets["gcp_service_account"]).get("client_email", "desconhecido")
     except Exception:
-        sa_email = "desconhecido"
+        pass
 
     try:
         return client.open_by_key(sid)
     except Exception as e:
-        # mensagem clara, sem vazar segredo
         raise RuntimeError(
             "Não consegui abrir a planilha no Google Sheets.\n"
             f"- Spreadsheet ID: {sid}\n"
@@ -99,7 +92,7 @@ def ping_db() -> tuple[bool, str]:
     try:
         client = _get_client()
         sh = _open_spreadsheet(client)
-        _ = sh.title  # força leitura
+        _ = sh.title
         return True, "ok"
     except Exception as e:
         return False, str(e)
@@ -116,9 +109,8 @@ def _ensure_worksheet(sh, title: str, headers: list[str]):
         try:
             ws = sh.add_worksheet(title=title, rows=2000, cols=max(10, len(headers) + 2))
         except APIError as e:
-            # Se alguém (ou o próprio init em paralelo) criou ao mesmo tempo
             msg = str(e)
-            if "already exists" in msg or "já existe" in msg or "A sheet with the name" in msg:
+            if ("already exists" in msg) or ("A sheet with the name" in msg) or ("já existe" in msg):
                 ws = sh.worksheet(title)
             else:
                 raise
@@ -129,16 +121,13 @@ def _ensure_worksheet(sh, title: str, headers: list[str]):
         return ws
 
     first_row = values[0]
-    if [c.strip() for c in first_row] != headers:
+    if [str(c).strip() for c in first_row] != headers:
         ws.update("A1", [headers])
 
     return ws
 
 
 def _ws_to_df(ws) -> pd.DataFrame:
-    """
-    Lê aba inteira como DataFrame.
-    """
     df = get_as_dataframe(ws, evaluate_formulas=True, header=0, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
@@ -146,9 +135,6 @@ def _ws_to_df(ws) -> pd.DataFrame:
 
 
 def _append_row(ws, row: dict, headers: list[str]):
-    """
-    Appenda seguindo a ordem do cabeçalho.
-    """
     values = [row.get(h, "") for h in headers]
     ws.append_row(values, value_input_option="USER_ENTERED")
 
@@ -161,63 +147,46 @@ def _next_id(df: pd.DataFrame) -> int:
 
 
 # =========================
-# INIT "DB" (cria abas/headers)
+# INIT "DB"
 # =========================
 def init_db():
     client = _get_client()
     sh = _open_spreadsheet(client)
 
-    # Transactions
     _ensure_worksheet(
-        sh,
-        TAB_TRANSACTIONS,
-        headers=["id", "date", "description", "type", "amount", "category", "paid", "created_at"],
+        sh, TAB_TRANSACTIONS,
+        headers=["id", "date", "description", "type", "amount", "category", "paid", "created_at"]
+    )
+    _ensure_worksheet(
+        sh, TAB_ADJUSTMENTS,
+        headers=["id", "data", "valor", "descricao", "created_at"]
+    )
+    _ensure_worksheet(
+        sh, TAB_DEBTS,
+        headers=["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"]
+    )
+    _ensure_worksheet(
+        sh, TAB_NOTES,
+        headers=["id", "titulo", "texto", "created_at", "updated_at"]
     )
 
-    # Cashflow adjustments
     _ensure_worksheet(
-        sh,
-        TAB_ADJUSTMENTS,
-        headers=["id", "data", "valor", "descricao", "created_at"],
+        sh, TAB_SAVINGS_GOAL,
+        headers=["id", "target_amount", "due_date", "n_deposits"]
+    )
+    _ensure_worksheet(
+        sh, TAB_SAVINGS_DEPOSITS,
+        headers=["n", "done"]
+    )
+    _ensure_worksheet(
+        sh, TAB_SAVINGS_OVERRIDES,
+        headers=["n", "amount"]
+    )
+    _ensure_worksheet(
+        sh, TAB_SAVINGS_TX_LINK,
+        headers=["n", "tx_id"]
     )
 
-    # Debts
-    _ensure_worksheet(
-        sh,
-        TAB_DEBTS,
-        headers=["id", "credor", "descricao", "valor", "vencimento", "prioridade", "quitada", "created_at"],
-    )
-
-    # Notes
-    _ensure_worksheet(
-        sh,
-        TAB_NOTES,
-        headers=["id", "titulo", "texto", "created_at", "updated_at"],
-    )
-
-    # Savings / desafio v2
-    _ensure_worksheet(
-        sh,
-        TAB_SAVINGS_GOAL,
-        headers=["id", "target_amount", "due_date", "n_deposits"],
-    )
-    _ensure_worksheet(
-        sh,
-        TAB_SAVINGS_DEPOSITS,
-        headers=["n", "done"],
-    )
-    _ensure_worksheet(
-        sh,
-        TAB_SAVINGS_OVERRIDES,
-        headers=["n", "amount"],
-    )
-    _ensure_worksheet(
-        sh,
-        TAB_SAVINGS_TX_LINK,
-        headers=["n", "tx_id"],
-    )
-
-    # garante que exista linha id=1 no goal
     ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
     df_goal = _ws_to_df(ws_goal)
     if df_goal.empty:
@@ -274,7 +243,6 @@ def fetch_transactions(date_start: str | None = None, date_end: str | None = Non
         df = df[df["date"] <= str(date_end)]
 
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
-
     df = df.sort_values(["date", "id"], ascending=[False, False])
     return df[["id", "date", "description", "type", "amount", "category", "paid"]].copy()
 
@@ -284,7 +252,6 @@ def delete_transaction(tx_id: int):
     client = _get_client()
     sh = _open_spreadsheet(client)
 
-    # remove link do desafio
     ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
     df_link = _ws_to_df(ws_link)
     if not df_link.empty and "tx_id" in df_link.columns:
@@ -295,11 +262,11 @@ def delete_transaction(tx_id: int):
         for _, r in df_link.iterrows():
             ws_link.append_row([str(r.get("n", "")), str(r.get("tx_id", ""))])
 
-    # remove da transactions
     ws = sh.worksheet(TAB_TRANSACTIONS)
     df = _ws_to_df(ws)
     if df.empty:
         return
+
     df["id"] = pd.to_numeric(df.get("id", 0), errors="coerce").fillna(0).astype(int)
     df = df[df["id"] != tx_id]
 
@@ -374,7 +341,7 @@ def add_cashflow_adjustment(data: str, valor: float, descricao: str | None = Non
     ws = sh.worksheet(TAB_ADJUSTMENTS)
 
     df = _ws_to_df(ws)
-    new_id = _next_id(df.rename(columns={"id": "id"}) if "id" in df.columns else df)
+    new_id = _next_id(df)
 
     row = {
         "id": str(new_id),
@@ -492,6 +459,7 @@ def mark_debt_paid(debt_id: int, paid: bool):
     mask = df["id"] == debt_id
     if not mask.any():
         return
+
     df.loc[mask, "quitada"] = "1" if paid else "0"
 
     ws.clear()
@@ -642,7 +610,6 @@ def delete_note(note_id: int):
 # DESAFIO v2 (Sheets)
 # =========================
 def _min_n_for_target(target: float) -> int:
-    import math
     if target <= 0:
         return 1
     n = int((math.sqrt(1 + 8 * target) - 1) / 2)
@@ -660,12 +627,10 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
 
     ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
     df_goal = _ws_to_df(ws_goal)
-    if df_goal.empty:
-        ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
-    else:
-        ws_goal.clear()
-        ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
-        ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
+
+    ws_goal.clear()
+    ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
+    ws_goal.append_row(["1", str(target_amount), str(due_date or ""), str(n)])
 
     ws_dep = sh.worksheet(TAB_SAVINGS_DEPOSITS)
     df_dep = _ws_to_df(ws_dep)
@@ -678,16 +643,16 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     ws_dep.clear()
     ws_dep.append_row(["n", "done"])
     for i in range(1, n + 1):
-        done = existing.get(i, 0)
-        ws_dep.append_row([str(i), str(done)])
+        ws_dep.append_row([str(i), str(existing.get(i, 0))])
 
     ws_ov = sh.worksheet(TAB_SAVINGS_OVERRIDES)
     df_ov = _ws_to_df(ws_ov)
     if not df_ov.empty:
         df_ov["n"] = pd.to_numeric(df_ov.get("n", 0), errors="coerce").fillna(0).astype(int)
         df_ov = df_ov[df_ov["n"] <= n]
-        ws_ov.clear()
-        ws_ov.append_row(["n", "amount"])
+    ws_ov.clear()
+    ws_ov.append_row(["n", "amount"])
+    if not df_ov.empty:
         for _, r in df_ov.iterrows():
             ws_ov.append_row([str(int(r.get("n", 0))), str(r.get("amount", ""))])
 
@@ -696,8 +661,9 @@ def set_savings_goal_v2(target_amount: float, due_date: str | None):
     if not df_link.empty:
         df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
         df_link = df_link[df_link["n"] <= n]
-        ws_link.clear()
-        ws_link.append_row(["n", "tx_id"])
+    ws_link.clear()
+    ws_link.append_row(["n", "tx_id"])
+    if not df_link.empty:
         for _, r in df_link.iterrows():
             ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
 
@@ -713,6 +679,7 @@ def get_savings_goal_v2():
     row = df[df.get("id", "") == "1"]
     if row.empty:
         return None, None, None
+
     r = row.iloc[0]
     t = r.get("target_amount", "")
     d = r.get("due_date", "")
@@ -750,157 +717,3 @@ def fetch_savings_deposits_v2_with_amount() -> pd.DataFrame:
     merged = dep.merge(ov, on="n", how="left", suffixes=("", "_ov"))
     merged["amount"] = merged["amount"].fillna(merged["n"].astype(float))
     return merged[["n", "done", "amount"]].sort_values("n")
-
-
-def toggle_savings_deposit_v2(n: int, done: bool):
-    n = int(n)
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-    ws = sh.worksheet(TAB_SAVINGS_DEPOSITS)
-
-    df = _ws_to_df(ws)
-    if df.empty:
-        return
-
-    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
-    mask = df["n"] == n
-    if not mask.any():
-        return
-    df.loc[mask, "done"] = "1" if done else "0"
-
-    ws.clear()
-    ws.append_row(["n", "done"])
-    for _, r in df.iterrows():
-        ws.append_row([str(int(r.get("n", 0))), str(r.get("done", "0"))])
-
-
-def set_savings_override_v2(n: int, amount: float | None):
-    n = int(n)
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-    ws = sh.worksheet(TAB_SAVINGS_OVERRIDES)
-
-    df = _ws_to_df(ws)
-    if df.empty:
-        df = pd.DataFrame(columns=["n", "amount"])
-
-    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
-
-    if amount is None:
-        df = df[df["n"] != n]
-    else:
-        amount = float(amount)
-        if (df["n"] == n).any():
-            df.loc[df["n"] == n, "amount"] = str(amount)
-        else:
-            df = pd.concat([df, pd.DataFrame([{"n": n, "amount": str(amount)}])], ignore_index=True)
-
-    ws.clear()
-    ws.append_row(["n", "amount"])
-    for _, r in df.sort_values("n").iterrows():
-        ws.append_row([str(int(r.get("n", 0))), str(r.get("amount", ""))])
-
-
-def reset_savings_marks_v2():
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-
-    ws = sh.worksheet(TAB_SAVINGS_DEPOSITS)
-    df = _ws_to_df(ws)
-    if df.empty:
-        return
-    df["n"] = pd.to_numeric(df.get("n", 0), errors="coerce").fillna(0).astype(int)
-    df["done"] = "0"
-
-    ws.clear()
-    ws.append_row(["n", "done"])
-    for _, r in df.sort_values("n").iterrows():
-        ws.append_row([str(int(r.get("n", 0))), "0"])
-
-    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
-    ws_link.clear()
-    ws_link.append_row(["n", "tx_id"])
-
-
-def clear_savings_goal_v2():
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-
-    ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
-    ws_goal.clear()
-    ws_goal.append_row(["id", "target_amount", "due_date", "n_deposits"])
-    ws_goal.append_row(["1", "", "", ""])
-
-    for tab, headers in [
-        (TAB_SAVINGS_DEPOSITS, ["n", "done"]),
-        (TAB_SAVINGS_OVERRIDES, ["n", "amount"]),
-        (TAB_SAVINGS_TX_LINK, ["n", "tx_id"]),
-    ]:
-        ws = sh.worksheet(tab)
-        ws.clear()
-        ws.append_row(headers)
-
-
-def create_desafio_transaction(date_: str, n: int, amount: float):
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-
-    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
-    df_link = _ws_to_df(ws_link)
-    if not df_link.empty:
-        df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
-        row = df_link[df_link["n"] == int(n)]
-        if not row.empty:
-            tx_id = row.iloc[0].get("tx_id", "")
-            if str(tx_id).strip():
-                return int(float(tx_id))
-
-    add_transaction(
-        date_=str(date_),
-        description=f"Desafio - Depósito #{int(n)}",
-        ttype="entrada",
-        amount=float(amount),
-        category="Desafio",
-        paid=1,
-    )
-
-    df_tx = fetch_transactions(None, None)
-    tx_id = int(df_tx["id"].max()) if not df_tx.empty else 1
-
-    if df_link.empty:
-        df_link = pd.DataFrame(columns=["n", "tx_id"])
-    df_link = pd.concat([df_link, pd.DataFrame([{"n": int(n), "tx_id": int(tx_id)}])], ignore_index=True)
-
-    ws_link.clear()
-    ws_link.append_row(["n", "tx_id"])
-    for _, r in df_link.iterrows():
-        ws_link.append_row([str(int(float(r.get("n", 0)))), str(int(float(r.get("tx_id", 0))))])
-
-    return int(tx_id)
-
-
-def delete_desafio_transaction(n: int):
-    n = int(n)
-    client = _get_client()
-    sh = _open_spreadsheet(client)
-
-    ws_link = sh.worksheet(TAB_SAVINGS_TX_LINK)
-    df_link = _ws_to_df(ws_link)
-    if df_link.empty:
-        return
-
-    df_link["n"] = pd.to_numeric(df_link.get("n", 0), errors="coerce").fillna(0).astype(int)
-    row = df_link[df_link["n"] == n]
-    if row.empty:
-        return
-
-    tx_id = row.iloc[0].get("tx_id", "")
-    if str(tx_id).strip():
-        delete_transaction(int(float(tx_id)))
-
-    df_link = df_link[df_link["n"] != n]
-    ws_link.clear()
-    ws_link.append_row(["n", "tx_id"])
-        for _, r in df_link.iterrows():
-        ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
-
