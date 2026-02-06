@@ -8,6 +8,8 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from gspread_dataframe import get_as_dataframe
+from gspread.exceptions import WorksheetNotFound, APIError
+
 
 # =========================
 # CONFIG
@@ -106,11 +108,20 @@ def ping_db() -> tuple[bool, str]:
 def _ensure_worksheet(sh, title: str, headers: list[str]):
     """
     Garante que a aba exista e tenha cabeçalho.
+    Robusto contra concorrência e erro 'already exists'.
     """
     try:
         ws = sh.worksheet(title)
-    except Exception:
-        ws = sh.add_worksheet(title=title, rows=2000, cols=max(10, len(headers) + 2))
+    except WorksheetNotFound:
+        try:
+            ws = sh.add_worksheet(title=title, rows=2000, cols=max(10, len(headers) + 2))
+        except APIError as e:
+            # Se alguém (ou o próprio init em paralelo) criou ao mesmo tempo
+            msg = str(e)
+            if "already exists" in msg or "já existe" in msg or "A sheet with the name" in msg:
+                ws = sh.worksheet(title)
+            else:
+                raise
 
     values = ws.get_all_values()
     if not values:
@@ -890,5 +901,6 @@ def delete_desafio_transaction(n: int):
     df_link = df_link[df_link["n"] != n]
     ws_link.clear()
     ws_link.append_row(["n", "tx_id"])
-    for _, r in df_link.iterrows():
+        for _, r in df_link.iterrows():
         ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
+
