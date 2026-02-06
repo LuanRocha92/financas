@@ -52,17 +52,24 @@ def _get_spreadsheet_id() -> str:
     return sid
 
 
-def _get_client():
-    import gspread
-    import streamlit as st
-    from google.oauth2.service_account import Credentials
-
-    SCOPES = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
+def _get_client() -> gspread.Client:
+    # pega service account do st.secrets
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError(
+            "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
+        )
 
     sa_info = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+    return gspread.authorize(creds)
+    
+   def _get_sa_info():
+    if "gcp_service_account" not in st.secrets:
+        raise RuntimeError(
+            "Secrets não configurado. Falta [gcp_service_account] no Streamlit."
+        )
+    return dict(st.secrets["gcp_service_account"])
+       
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return gspread.authorize(creds)
 
@@ -896,5 +903,6 @@ def delete_desafio_transaction(n: int):
     ws_link.append_row(["n", "tx_id"])
     for _, r in df_link.iterrows():
         ws_link.append_row([str(int(r.get("n", 0))), str(r.get("tx_id", ""))])
+
 
 
