@@ -5,7 +5,6 @@ import math
 from datetime import date
 
 from db import (
-    init_db,
     set_savings_goal_v2,
     get_savings_goal_v2,
     fetch_savings_deposits_v2_with_amount,
@@ -25,8 +24,6 @@ def fmt(v: float) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def render_desafio(data_padrao: date):
-    init_db()
-
     st.title("🎯 Desafio (depósitos 1..N)")
     st.caption("Crie uma meta e marque depósitos. Clica e fica verde na hora ✅")
 
@@ -76,10 +73,10 @@ def render_desafio(data_padrao: date):
         return
 
     df = fetch_savings_deposits_v2_with_amount()
-    df["done"] = df["done"].astype(int)
+    df["done"] = pd.to_numeric(df["done"], errors="coerce").fillna(0).astype(int)
 
-    total_final = float(df["amount"].sum())
-    guardado = float((df["amount"] * df["done"]).sum())
+    total_final = float(pd.to_numeric(df["amount"], errors="coerce").fillna(0.0).sum())
+    guardado = float((pd.to_numeric(df["amount"], errors="coerce").fillna(0.0) * df["done"]).sum())
     falta = max(total_final - guardado, 0.0)
     progresso = guardado / total_final if total_final > 0 else 0.0
 
@@ -97,7 +94,7 @@ def render_desafio(data_padrao: date):
     tab_visual, tab_edicao, tab_exclusao = st.tabs(["✅ Visual", "✏️ Edição", "🗑️ Exclusão / Reset"])
 
     with tab_visual:
-        st.subheader("✅ Clique para marcar (fica verde na hora)")
+        st.subheader("✅ Clique para marcar")
 
         amount_map = dict(zip(df["n"].astype(int), df["amount"].astype(float)))
         done_map = dict(zip(df["n"].astype(int), df["done"].astype(int)))
@@ -128,7 +125,7 @@ def render_desafio(data_padrao: date):
                     changed.append((n, new_val))
 
         if changed:
-            hoje = str(data_padrao)  # usa a data do app como base
+            hoje = str(data_padrao)
             for n, new_val in changed:
                 toggle_savings_deposit_v2(n, new_val)
 
@@ -145,6 +142,8 @@ def render_desafio(data_padrao: date):
         st.subheader("📈 Evolução (sem datas)")
 
         marked = fetch_savings_deposits_v2_with_amount()
+        marked["done"] = pd.to_numeric(marked["done"], errors="coerce").fillna(0).astype(int)
+        marked["amount"] = pd.to_numeric(marked["amount"], errors="coerce").fillna(0.0)
         marked = marked[marked["done"] == 1].sort_values("n")
 
         if marked.empty:
