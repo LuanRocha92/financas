@@ -16,29 +16,30 @@ from db import (
 from utils import build_cashflow, fmt_brl
 from desafio import render_desafio
 
+
 # -----------------------------------
-# CONFIG INICIAL
+# CONFIG INICIAL (UMA VEZ)
 # -----------------------------------
 st.set_page_config(page_title="Finanças", page_icon="💰", layout="wide")
 
 # -----------------------------------
-# INICIALIZA DB (GOOGLE SHEETS) - SEM POLUIR O TOPO
+# INICIALIZA DB (GOOGLE SHEETS) - UMA VEZ
 # -----------------------------------
 try:
     init_db()
-    ok, msg = ping_db()
-    if not ok:
-        st.sidebar.error("❌ Google Sheets NÃO conectou")
-        st.sidebar.caption(msg)
-        st.error("❌ Não foi possível conectar no Google Sheets.")
-        st.caption(msg)
-        st.stop()
-    st.sidebar.success("✅ Banco conectado (Google Sheets)")
 except Exception as e:
-    st.sidebar.error("❌ Erro ao inicializar DB")
     st.error("❌ Erro ao inicializar o banco (Google Sheets)")
-    st.exception(e)
+    st.code(str(e))
     st.stop()
+
+ok, msg = ping_db()
+if ok:
+    st.sidebar.success("✅ Banco conectado (Google Sheets)")
+else:
+    st.sidebar.error("❌ Google Sheets NÃO conectou")
+    st.sidebar.caption(msg)
+    st.stop()
+
 
 # -----------------------------------
 # TEMA (ALTAIR)
@@ -60,14 +61,16 @@ alt.themes.register(
 )
 alt.themes.enable("refinado")
 
+
 # -----------------------------------
-# DATA BASE (UMA SÓ) QUE MANDA NO APP TODO
+# DATA BASE
 # -----------------------------------
 def _first_day_of_month(d: date) -> date:
     return d.replace(day=1)
 
 if "data_base" not in st.session_state:
     st.session_state.data_base = date.today()
+
 
 # -----------------------------------
 # MENU + DATA NA SIDEBAR
@@ -86,9 +89,11 @@ st.session_state.data_base = data_base
 
 inicio = _first_day_of_month(data_base)
 fim = data_base
-
 st.sidebar.caption(f"{inicio.strftime('%d/%m/%Y')} - {fim.strftime('%d/%m/%Y')}")
+
+# projeção do fluxo (+30 dias)
 fim_fluxo = fim + timedelta(days=30)
+
 
 # -----------------------------------
 # HELPERS
@@ -101,6 +106,7 @@ def _style_pos_neg(v: float):
     if v < 0:
         return "color:#ff4d4f; font-weight:700;"
     return "color:#22c55e; font-weight:700;"
+
 
 # -----------------------------------
 # PÁGINAS
@@ -122,6 +128,7 @@ if pagina == "💰 Visão Geral":
     saidas = df.loc[df["type"] == "saida", "amount"].sum() if not df.empty else 0.0
     saldo = entradas - saidas
 
+    # --- resumo do desafio ---
     dep = fetch_savings_deposits_v2_with_amount()
     if dep is None or dep.empty:
         guardado = 0.0
@@ -143,6 +150,7 @@ if pagina == "💰 Visão Geral":
 
     st.divider()
 
+    # --- próximos 7 dias ---
     st.subheader("📅 Próximos 7 dias (panorama)")
     start7 = fim
     end7 = fim + timedelta(days=7)
@@ -189,6 +197,7 @@ if pagina == "💰 Visão Geral":
             .properties(height=360)
         )
         st.altair_chart(chart, use_container_width=True)
+
 
 # =========================
 # 🧾 LANÇAMENTOS
@@ -270,6 +279,7 @@ elif pagina == "🧾 Lançamentos":
                 st.rerun()
             else:
                 st.warning("Informe um ID válido.")
+
 
 # =========================
 # 📆 FLUXO DE CAIXA
@@ -373,6 +383,7 @@ elif pagina == "📆 Fluxo de Caixa":
                 else:
                     st.warning("Informe um ID válido.")
 
+
 # =========================
 # 📍 MAPA DE DÍVIDAS
 # =========================
@@ -460,6 +471,7 @@ elif pagina == "📍 Mapa de Dívidas":
         else:
             st.warning("Informe um ID válido.")
 
+
 # =========================
 # 📝 BLOCO DE NOTAS
 # =========================
@@ -514,14 +526,17 @@ elif pagina == "📝 Bloco de Notas":
                 else:
                     st.warning("Informe um ID válido.")
 
+
 # =========================
 # 🎯 DESAFIO
 # =========================
 elif pagina == "🎯 Desafio":
     render_desafio(data_padrao=fim)
 
+
 # -----------------------------------
-# DEBUG NO FINAL (OPCIONAL) — NÃO POLUI O TOPO
+# DEBUG (NO FINAL DA SIDEBAR, PRA NAO FICAR FEIO)
 # -----------------------------------
-with st.expander("🛠️ Debug (Secrets)", expanded=False):
-    st.write("Secrets disponíveis:", list(st.secrets.keys()))
+with st.sidebar.expander("🛠️ Debug (Secrets)", expanded=False):
+    st.write("🔎 Secrets disponíveis:", list(st.secrets.keys()))
+    st.write("Keys do secrets:", list(st.secrets.keys()))
