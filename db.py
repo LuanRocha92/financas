@@ -189,10 +189,22 @@ def init_db():
         _ensure_worksheet(sh, TAB_SAVINGS_OVERRIDES, H_SAVINGS_OVERRIDES)
         _ensure_worksheet(sh, TAB_SAVINGS_TX_LINK, H_SAVINGS_TX_LINK)
 
-        # garante id=1 no goal
+        # --- conserta goal se tiver lixo ---
         ws_goal = sh.worksheet(TAB_SAVINGS_GOAL)
         df_goal = _ws_to_df(ws_goal, H_SAVINGS_GOAL)
-        if df_goal.empty or not (df_goal.get("id", "") == "1").any():
+
+        # se a aba não tem as colunas certas, reescreve o header
+        if df_goal.empty or ("id" not in df_goal.columns):
+            _with_retry(lambda: ws_goal.clear())
+            _with_retry(lambda: ws_goal.append_row(H_SAVINGS_GOAL))
+            df_goal = _ws_to_df(ws_goal, H_SAVINGS_GOAL)
+
+        # garante linha id=1
+        has_id1 = False
+        if not df_goal.empty and "id" in df_goal.columns:
+            has_id1 = (df_goal["id"].astype(str).str.strip() == "1").any()
+
+        if not has_id1:
             _with_retry(lambda: ws_goal.append_row(["1", "", "", ""]))
 
     finally:
@@ -827,4 +839,5 @@ def delete_desafio_transaction(n: int):
     _with_retry(lambda: ws_link.append_row(H_SAVINGS_TX_LINK))
     for _, r in df_link.iterrows():
         _with_retry(lambda rr=r: ws_link.append_row([str(int(rr.get("n", 0))), str(rr.get("tx_id", ""))]))
+
 
