@@ -632,20 +632,33 @@ def get_savings_goal_v2():
     sh = _open_spreadsheet()
     ws = sh.worksheet(TAB_SAVINGS_GOAL)
     df = _ws_to_df(ws, H_SAVINGS_GOAL)
+
     if df.empty:
         return None, None, None
 
-    row = df[df.get("id", "") == "1"]
-    if row.empty:
-        return None, None, None
-    r = row.iloc[0]
-    t = r.get("target_amount", "")
-    d = r.get("due_date", "")
-    n = r.get("n_deposits", "")
+    # tenta achar linha id=1; se não tiver, pega a primeira válida
+    if "id" in df.columns:
+        row = df[df["id"].astype(str).str.strip() == "1"]
+        if row.empty:
+            row = df.iloc[[0]]
+    else:
+        row = df.iloc[[0]]
 
-    target = float(t) if str(t).strip() else None
-    due = str(d).strip() or None
-    ndeps = int(float(n)) if str(n).strip() else None
+    r = row.iloc[0]
+
+    t = str(r.get("target_amount", "")).strip()
+    d = str(r.get("due_date", "")).strip()
+    n = str(r.get("n_deposits", "")).strip()
+
+    # parse seguro
+    target = pd.to_numeric(pd.Series([t]), errors="coerce").iloc[0]
+    target = float(target) if pd.notna(target) else None
+
+    due = d if d and d.lower() not in ("none", "nan") else None
+
+    ndeps = pd.to_numeric(pd.Series([n]), errors="coerce").iloc[0]
+    ndeps = int(ndeps) if pd.notna(ndeps) else None
+
     return target, due, ndeps
 
 def fetch_savings_deposits_v2_with_amount() -> pd.DataFrame:
@@ -814,3 +827,4 @@ def delete_desafio_transaction(n: int):
     _with_retry(lambda: ws_link.append_row(H_SAVINGS_TX_LINK))
     for _, r in df_link.iterrows():
         _with_retry(lambda rr=r: ws_link.append_row([str(int(rr.get("n", 0))), str(rr.get("tx_id", ""))]))
+
